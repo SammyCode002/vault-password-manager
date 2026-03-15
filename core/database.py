@@ -16,6 +16,7 @@ Why SQLite?
 - Perfect for local-first storage with optional cloud sync later
 """
 
+import csv
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -466,6 +467,69 @@ class VaultDatabase:
         except Exception:
             self.conn.rollback()
             raise
+
+    # ------------------------------------------------------------------
+    # Export / Import
+    # ------------------------------------------------------------------
+
+    def export_to_csv(self, filepath: str) -> int:
+        """
+        Export all vault entries to a plaintext CSV file.
+
+        Columns: site_name, url, username, password, notes, category
+        Returns the number of entries exported.
+        """
+        self._require_unlocked()
+        entries = self.get_all_entries()
+        fieldnames = ["site_name", "url", "username", "password", "notes", "category"]
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            for e in entries:
+                writer.writerow({k: e.get(k, "") for k in fieldnames})
+        return len(entries)
+
+    def import_from_csv(self, filepath: str) -> tuple[int, int]:
+        """
+        Import entries from a CSV file.
+
+        Accepts standard columns (site_name / name / title, username / email / login,
+        password, url / website, notes / note, category).
+        Returns (imported_count, skipped_count).
+        """
+        self._require_unlocked()
+        imported = 0
+        skipped = 0
+        with open(filepath, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    site = (
+                        row.get("site_name", "").strip()
+                        or row.get("name", "").strip()
+                        or row.get("title", "").strip()
+                    )
+                    username = (
+                        row.get("username", "").strip()
+                        or row.get("email", "").strip()
+                        or row.get("login", "").strip()
+                    )
+                    password = row.get("password", "").strip()
+                    if not site or not username or not password:
+                        skipped += 1
+                        continue
+                    self.add_entry(
+                        site_name=site,
+                        username=username,
+                        password=password,
+                        url=row.get("url", "").strip() or row.get("website", "").strip(),
+                        notes=row.get("notes", "").strip() or row.get("note", "").strip(),
+                        category=row.get("category", "General").strip() or "General",
+                    )
+                    imported += 1
+                except Exception:
+                    skipped += 1
+        return imported, skipped
 
     # ------------------------------------------------------------------
     # Helpers

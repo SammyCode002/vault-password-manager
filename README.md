@@ -27,7 +27,7 @@ Built as a cybersecurity-focused project to demonstrate real-world encryption, s
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/vault-password-manager.git
+git clone https://github.com/SammyCode002/vault-password-manager.git
 cd vault-password-manager
 
 # Install dependencies

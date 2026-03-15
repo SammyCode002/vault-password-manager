@@ -1,16 +1,24 @@
 """
-main_window.py - Redesigned vault with sidebar navigation and modern card layout.
+main_window.py - Vault main window with sidebar navigation and modern card layout.
 
 Features:
-- Sidebar with category filters and settings
-- Modern entry cards with site icons
+- Sidebar with category filters and live entry counts
+- Entry cards with reveal-password toggle and open-URL button
+- Password age display on each card
+- Auto-lock after configurable inactivity timeout
+- Export to CSV / Import from CSV in Settings
 - Dark/light mode toggle
 - Keyboard shortcuts
 - Change master password
 """
 
-import customtkinter as ctk
+import time
+import webbrowser
+from datetime import datetime, timezone
+from tkinter import filedialog
 from typing import Callable, Optional
+
+import customtkinter as ctk
 
 from core.database import VaultDatabase
 from core.password_gen import estimate_strength
@@ -21,10 +29,46 @@ from gui.theme import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _format_age(iso_string: str) -> str:
+    """Convert an ISO timestamp to a human-readable relative time string."""
+    try:
+        dt = datetime.fromisoformat(iso_string)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        s = int((datetime.now(timezone.utc) - dt).total_seconds())
+        if s < 60:
+            return "just now"
+        if s < 3600:
+            return f"{s // 60}m ago"
+        if s < 86_400:
+            return f"{s // 3600}h ago"
+        if s < 30 * 86_400:
+            return f"{s // 86_400}d ago"
+        if s < 365 * 86_400:
+            return f"{s // (30 * 86_400)}mo ago"
+        return f"{s // (365 * 86_400)}yr ago"
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# MainWindow
+# ---------------------------------------------------------------------------
+
 class MainWindow(ctk.CTkFrame):
     """Main vault view with sidebar navigation."""
 
-    def __init__(self, parent: ctk.CTk, db: VaultDatabase, on_lock: Callable, on_theme_change: Callable = None):
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        db: VaultDatabase,
+        on_lock: Callable,
+        on_theme_change: Callable = None,
+    ):
         C = get_colors()
         super().__init__(parent, fg_color=C["bg_primary"])
         self.db = db
@@ -33,9 +77,19 @@ class MainWindow(ctk.CTkFrame):
         self.clipboard_clear_job = None
         self.active_category = "All"
 
+        # Auto-lock state
+        self._auto_lock_minutes = 0
+        self._last_activity = time.monotonic()
+        self._auto_lock_job = None
+
         self._build_ui()
         self._refresh_entries()
         self._bind_shortcuts()
+        self._setup_auto_lock()
+
+    # ------------------------------------------------------------------
+    # Shortcuts
+    # ------------------------------------------------------------------
 
     def _bind_shortcuts(self):
         top = self.winfo_toplevel()
@@ -43,6 +97,38 @@ class MainWindow(ctk.CTkFrame):
         top.bind("<Control-f>", lambda e: self.search_entry.focus_set())
         top.bind("<Control-l>", lambda e: self._lock_vault())
         top.bind("<Escape>", lambda e: self._clear_search())
+
+    # ------------------------------------------------------------------
+    # Auto-lock
+    # ------------------------------------------------------------------
+
+    def _setup_auto_lock(self):
+        top = self.winfo_toplevel()
+        for event in ("<Motion>", "<KeyPress>", "<Button>"):
+            top.bind(event, self._reset_inactivity, add="+")
+        self._schedule_inactivity_check()
+
+    def _reset_inactivity(self, event=None):
+        self._last_activity = time.monotonic()
+
+    def _schedule_inactivity_check(self):
+        self._auto_lock_job = self.after(30_000, self._check_inactivity)
+
+    def _check_inactivity(self):
+        if self._auto_lock_minutes > 0:
+            idle = time.monotonic() - self._last_activity
+            if idle >= self._auto_lock_minutes * 60:
+                self._lock_vault()
+                return
+        self._schedule_inactivity_check()
+
+    def set_auto_lock(self, minutes: int):
+        self._auto_lock_minutes = minutes
+        self._last_activity = time.monotonic()
+
+    # ------------------------------------------------------------------
+    # Build UI
+    # ------------------------------------------------------------------
 
     def _build_ui(self):
         C = get_colors()
@@ -61,7 +147,7 @@ class MainWindow(ctk.CTkFrame):
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_rowconfigure(4, weight=1)
 
-        # -- Logo --
+        # Logo
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         logo_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 24))
 
@@ -75,7 +161,7 @@ class MainWindow(ctk.CTkFrame):
             text_color=C["text_primary"],
         ).pack(side="left")
 
-        # -- Add Button --
+        # Add Button
         self.add_btn = ctk.CTkButton(
             self.sidebar, text="＋  New Entry",
             font=ctk.CTkFont(size=13, weight="bold"),
@@ -86,7 +172,7 @@ class MainWindow(ctk.CTkFrame):
         )
         self.add_btn.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 20))
 
-        # -- Category Filters --
+        # Category Filters
         filter_label = ctk.CTkLabel(
             self.sidebar, text="CATEGORIES",
             font=ctk.CTkFont(size=10, weight="bold"),
@@ -118,54 +204,34 @@ class MainWindow(ctk.CTkFrame):
             btn.pack(fill="x", pady=1)
             self.category_buttons[cat] = btn
 
-        # -- Spacer --
-        # (row 4 has weight=1, pushes bottom items down)
-
-        # -- Bottom controls --
+        # Bottom controls
         bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         bottom_frame.grid(row=5, column=0, sticky="sew", padx=16, pady=(8, 16))
 
-        # Theme toggle
         self.theme_btn = ctk.CTkButton(
             bottom_frame,
             text="☀  Light Mode" if get_mode() == "dark" else "🌙  Dark Mode",
-            font=ctk.CTkFont(size=12),
-            height=34,
-            fg_color="transparent",
-            hover_color=C["bg_hover"],
-            text_color=C["text_secondary"],
-            anchor="w",
-            corner_radius=8,
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color="transparent", hover_color=C["bg_hover"],
+            text_color=C["text_secondary"], anchor="w", corner_radius=8,
             command=self._toggle_theme,
         )
         self.theme_btn.pack(fill="x", pady=(0, 2))
 
-        # Settings
         self.settings_btn = ctk.CTkButton(
-            bottom_frame,
-            text="⚙  Settings",
-            font=ctk.CTkFont(size=12),
-            height=34,
-            fg_color="transparent",
-            hover_color=C["bg_hover"],
-            text_color=C["text_secondary"],
-            anchor="w",
-            corner_radius=8,
+            bottom_frame, text="⚙  Settings",
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color="transparent", hover_color=C["bg_hover"],
+            text_color=C["text_secondary"], anchor="w", corner_radius=8,
             command=self._show_settings,
         )
         self.settings_btn.pack(fill="x", pady=(0, 2))
 
-        # Lock
         self.lock_btn = ctk.CTkButton(
-            bottom_frame,
-            text="🔒  Lock Vault",
-            font=ctk.CTkFont(size=12),
-            height=34,
-            fg_color="transparent",
-            hover_color=C["bg_hover"],
-            text_color=C["text_secondary"],
-            anchor="w",
-            corner_radius=8,
+            bottom_frame, text="🔒  Lock Vault",
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color="transparent", hover_color=C["bg_hover"],
+            text_color=C["text_secondary"], anchor="w", corner_radius=8,
             command=self._lock_vault,
         )
         self.lock_btn.pack(fill="x")
@@ -178,7 +244,7 @@ class MainWindow(ctk.CTkFrame):
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(2, weight=1)
 
-        # -- Header --
+        # Header
         header = ctk.CTkFrame(content, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=28, pady=(20, 4))
 
@@ -196,25 +262,22 @@ class MainWindow(ctk.CTkFrame):
         )
         self.header_subtitle.pack(anchor="w")
 
-        # -- Search Bar --
+        # Search Bar
         search_frame = ctk.CTkFrame(content, fg_color="transparent")
         search_frame.grid(row=1, column=0, sticky="ew", padx=28, pady=(12, 8))
 
         self.search_entry = ctk.CTkEntry(
             search_frame,
             placeholder_text="Search entries...",
-            font=ctk.CTkFont(size=13),
-            height=42,
-            fg_color=C["bg_input"],
-            border_color=C["border"],
-            text_color=C["text_primary"],
-            placeholder_text_color=C["text_muted"],
+            font=ctk.CTkFont(size=13), height=42,
+            fg_color=C["bg_input"], border_color=C["border"],
+            text_color=C["text_primary"], placeholder_text_color=C["text_muted"],
             corner_radius=10,
         )
         self.search_entry.pack(fill="x")
         self.search_entry.bind("<KeyRelease>", self._on_search)
 
-        # -- Entry List --
+        # Entry List
         self.list_frame = ctk.CTkScrollableFrame(
             content, fg_color="transparent",
             scrollbar_button_color=C["border"],
@@ -245,6 +308,26 @@ class MainWindow(ctk.CTkFrame):
 
         self._refresh_entries()
 
+    def _update_category_counts(self, all_entries: list):
+        """Update sidebar category button labels with live entry counts."""
+        counts: dict[str, int] = {}
+        for e in all_entries:
+            cat = e.get("category", "General")
+            counts[cat] = counts.get(cat, 0) + 1
+
+        total = len(all_entries)
+        cat_icons = {"All": "📋", **CATEGORY_ICONS}
+
+        for cat, btn in self.category_buttons.items():
+            icon = cat_icons.get(cat, "📌")
+            if cat == "All":
+                suffix = f" ({total})" if total > 0 else ""
+                btn.configure(text=f"  {icon}  All{suffix}")
+            else:
+                n = counts.get(cat, 0)
+                suffix = f" ({n})" if n > 0 else ""
+                btn.configure(text=f"  {icon}  {cat}{suffix}")
+
     # ------------------------------------------------------------------
     # Entry List
     # ------------------------------------------------------------------
@@ -255,12 +338,14 @@ class MainWindow(ctk.CTkFrame):
         for widget in self.list_frame.winfo_children():
             widget.destroy()
 
+        all_entries = self.db.get_all_entries()
+        self._update_category_counts(all_entries)
+
         if search_query:
             entries = self.db.search_entries(search_query)
         else:
-            entries = self.db.get_all_entries()
+            entries = all_entries
 
-        # Filter by category
         if self.active_category != "All":
             entries = [e for e in entries if e.get("category", "General") == self.active_category]
 
@@ -269,7 +354,7 @@ class MainWindow(ctk.CTkFrame):
             self.header_subtitle.configure(text="No entries found" if search_query else "")
             return
 
-        total = self.db.get_entry_count()
+        total = len(all_entries)
         self.header_subtitle.configure(
             text=f"{len(entries)} {'entry' if len(entries) == 1 else 'entries'}"
             + (f" of {total}" if len(entries) != total else "")
@@ -284,19 +369,10 @@ class MainWindow(ctk.CTkFrame):
         empty.grid(row=0, column=0, sticky="ew", pady=60)
         empty.grid_columnconfigure(0, weight=1)
 
-        if search_query:
-            icon, msg = "🔍", f'No results for "{search_query}"'
-        else:
-            icon, msg = "🛡", "No entries yet.\nClick '＋ New Entry' to get started."
+        icon, msg = ("🔍", f'No results for "{search_query}"') if search_query else ("🛡", "No entries yet.\nClick '＋ New Entry' to get started.")
 
-        ctk.CTkLabel(
-            empty, text=icon, font=ctk.CTkFont(size=44),
-        ).grid(row=0, column=0, pady=(0, 10))
-
-        ctk.CTkLabel(
-            empty, text=msg, font=ctk.CTkFont(size=14),
-            text_color=C["text_secondary"], justify="center",
-        ).grid(row=1, column=0)
+        ctk.CTkLabel(empty, text=icon, font=ctk.CTkFont(size=44)).grid(row=0, column=0, pady=(0, 10))
+        ctk.CTkLabel(empty, text=msg, font=ctk.CTkFont(size=14), text_color=C["text_secondary"], justify="center").grid(row=1, column=0)
 
     def _create_entry_card(self, entry: dict, index: int):
         C = get_colors()
@@ -313,22 +389,17 @@ class MainWindow(ctk.CTkFrame):
         avatar_color = get_avatar_color(entry["site_name"])
         site_icon = get_site_icon(entry["site_name"], entry.get("category", "General"))
 
-        avatar = ctk.CTkFrame(
-            card, width=44, height=44, corner_radius=10,
-            fg_color=avatar_color,
-        )
-        avatar.grid(row=0, column=0, rowspan=2, padx=(14, 10), pady=14)
+        avatar = ctk.CTkFrame(card, width=44, height=44, corner_radius=10, fg_color=avatar_color)
+        avatar.grid(row=0, column=0, padx=(14, 10), pady=14)
         avatar.grid_propagate(False)
+        ctk.CTkLabel(avatar, text=site_icon, font=ctk.CTkFont(size=18)).place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(
-            avatar, text=site_icon, font=ctk.CTkFont(size=18),
-        ).place(relx=0.5, rely=0.5, anchor="center")
+        # -- Info Column (packed vertically) --
+        info = ctk.CTkFrame(card, fg_color="transparent")
+        info.grid(row=0, column=1, sticky="nsew", pady=10)
 
-        # -- Site Info --
-        info_frame = ctk.CTkFrame(card, fg_color="transparent")
-        info_frame.grid(row=0, column=1, sticky="sw", pady=(14, 0))
-
-        name_row = ctk.CTkFrame(info_frame, fg_color="transparent")
+        # Site name + category badge
+        name_row = ctk.CTkFrame(info, fg_color="transparent")
         name_row.pack(fill="x")
 
         ctk.CTkLabel(
@@ -346,28 +417,41 @@ class MainWindow(ctk.CTkFrame):
                 corner_radius=4, padx=6, pady=1,
             ).pack(side="left", padx=(8, 0))
 
-        # Username row
-        user_frame = ctk.CTkFrame(card, fg_color="transparent")
-        user_frame.grid(row=1, column=1, sticky="nw", pady=(0, 14))
-
+        # Username
         ctk.CTkLabel(
-            user_frame, text=entry["username"],
+            info, text=entry["username"],
             font=ctk.CTkFont(size=12),
             text_color=C["text_secondary"], anchor="w",
+        ).pack(fill="x")
+
+        # Password reveal row (hidden by default)
+        pw_visible = [False]
+        pw_row = ctk.CTkFrame(info, fg_color="transparent")
+        ctk.CTkLabel(
+            pw_row, text=entry["password"],
+            font=ctk.CTkFont(family="Courier", size=11),
+            text_color=C["text_muted"], anchor="w",
         ).pack(side="left")
+
+        # Age
+        age = _format_age(entry.get("updated_at", ""))
+        if age:
+            ctk.CTkLabel(
+                info, text=f"Updated {age}",
+                font=ctk.CTkFont(size=10),
+                text_color=C["text_muted"], anchor="w",
+            ).pack(fill="x")
 
         # -- Action Buttons --
         btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-        btn_frame.grid(row=0, column=2, rowspan=2, padx=(8, 14), pady=14)
+        btn_frame.grid(row=0, column=2, padx=(8, 14), pady=14)
 
         copy_btn = ctk.CTkButton(
             btn_frame, text="Copy",
             font=ctk.CTkFont(size=11, weight="bold"),
             width=64, height=30,
-            fg_color=C["copy_btn"],
-            hover_color=C["copy_btn_hover"],
-            text_color="#ffffff",
-            corner_radius=8,
+            fg_color=C["copy_btn"], hover_color=C["copy_btn_hover"],
+            text_color="#ffffff", corner_radius=8,
             command=lambda e=entry: self._copy_password(e, copy_btn),
         )
         copy_btn.pack(pady=(0, 4))
@@ -375,6 +459,17 @@ class MainWindow(ctk.CTkFrame):
         mini_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
         mini_frame.pack()
 
+        # Reveal password toggle
+        eye_btn = ctk.CTkButton(
+            mini_frame, text="👁", width=28, height=28,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent", hover_color=C["bg_hover"],
+            text_color=C["text_secondary"], corner_radius=6,
+        )
+        eye_btn.configure(command=lambda: self._toggle_pw_reveal(pw_visible, pw_row, eye_btn))
+        eye_btn.pack(side="left", padx=(0, 2))
+
+        # Edit
         ctk.CTkButton(
             mini_frame, text="✎", width=28, height=28,
             font=ctk.CTkFont(size=13),
@@ -383,13 +478,33 @@ class MainWindow(ctk.CTkFrame):
             command=lambda e=entry: self._show_edit_form(e),
         ).pack(side="left", padx=(0, 2))
 
+        # Delete
         ctk.CTkButton(
             mini_frame, text="🗑", width=28, height=28,
             font=ctk.CTkFont(size=13),
             fg_color="transparent", hover_color=C["bg_hover"],
             text_color=C["delete_btn"], corner_radius=6,
             command=lambda e=entry: self._confirm_delete(e),
-        ).pack(side="left")
+        ).pack(side="left", padx=(0, 2))
+
+        # Open URL (only if URL is set)
+        if entry.get("url"):
+            ctk.CTkButton(
+                mini_frame, text="↗", width=28, height=28,
+                font=ctk.CTkFont(size=13),
+                fg_color="transparent", hover_color=C["bg_hover"],
+                text_color=C["text_secondary"], corner_radius=6,
+                command=lambda url=entry["url"]: webbrowser.open(url),
+            ).pack(side="left")
+
+    def _toggle_pw_reveal(self, pw_visible: list, pw_row: ctk.CTkFrame, btn: ctk.CTkButton):
+        pw_visible[0] = not pw_visible[0]
+        if pw_visible[0]:
+            pw_row.pack(fill="x")
+            btn.configure(text="🙈")
+        else:
+            pw_row.pack_forget()
+            btn.configure(text="👁")
 
     # ------------------------------------------------------------------
     # Clipboard
@@ -485,13 +600,22 @@ class MainWindow(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _show_settings(self):
-        SettingsDialog(parent=self, db=self.db)
+        SettingsDialog(
+            parent=self,
+            db=self.db,
+            auto_lock_minutes=self._auto_lock_minutes,
+            on_auto_lock_change=self.set_auto_lock,
+        )
 
     # ------------------------------------------------------------------
     # Lock
     # ------------------------------------------------------------------
 
     def _lock_vault(self):
+        if self._auto_lock_job:
+            self.after_cancel(self._auto_lock_job)
+            self._auto_lock_job = None
+
         if self.clipboard_clear_job:
             self.after_cancel(self.clipboard_clear_job)
             self._clear_clipboard()
@@ -774,14 +898,22 @@ class DeleteConfirmDialog(ctk.CTkToplevel):
 # ======================================================================
 
 class SettingsDialog(ctk.CTkToplevel):
-    def __init__(self, parent, db: VaultDatabase):
+    def __init__(
+        self,
+        parent,
+        db: VaultDatabase,
+        auto_lock_minutes: int = 0,
+        on_auto_lock_change: Callable = None,
+    ):
         super().__init__(parent)
         C = get_colors()
         self.parent_ref = parent
         self.db = db
+        self._on_auto_lock_change = on_auto_lock_change
+        self._auto_lock_minutes = auto_lock_minutes
 
         self.title("Settings")
-        self.geometry("420x380")
+        self.geometry("460x560")
         self.configure(fg_color=C["bg_primary"])
         self.resizable(False, False)
         self.transient(parent)
@@ -791,7 +923,7 @@ class SettingsDialog(ctk.CTkToplevel):
 
     def _build_ui(self):
         C = get_colors()
-        container = ctk.CTkFrame(self, fg_color="transparent")
+        container = ctk.CTkScrollableFrame(self, fg_color="transparent")
         container.pack(fill="both", expand=True, padx=24, pady=20)
 
         ctk.CTkLabel(
@@ -800,13 +932,12 @@ class SettingsDialog(ctk.CTkToplevel):
             text_color=C["text_primary"],
         ).pack(anchor="w", pady=(0, 16))
 
-        # Vault info
+        # -- Vault info --
         info_card = ctk.CTkFrame(
             container, fg_color=C["bg_card"], corner_radius=12,
             border_width=1, border_color=C["border"],
         )
         info_card.pack(fill="x", pady=(0, 12))
-
         info_inner = ctk.CTkFrame(info_card, fg_color="transparent")
         info_inner.pack(padx=16, pady=14, fill="x")
 
@@ -820,13 +951,12 @@ class SettingsDialog(ctk.CTkToplevel):
             text=f"Vault contains {count} {'entry' if count == 1 else 'entries'}",
             font=ctk.CTkFont(size=13), text_color=C["text_secondary"],
         ).pack(anchor="w")
-
         ctk.CTkLabel(
             info_inner, text="Stored locally in vault.db (encrypted)",
             font=ctk.CTkFont(size=11), text_color=C["text_muted"],
         ).pack(anchor="w", pady=(2, 0))
 
-        # Change password button
+        # -- Change password --
         ctk.CTkButton(
             container, text="🔑  Change Master Password",
             font=ctk.CTkFont(size=13), height=42,
@@ -837,13 +967,96 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._change_password,
         ).pack(fill="x", pady=(0, 12))
 
-        # Shortcuts
+        # -- Auto-lock --
+        lock_card = ctk.CTkFrame(
+            container, fg_color=C["bg_card"], corner_radius=12,
+            border_width=1, border_color=C["border"],
+        )
+        lock_card.pack(fill="x", pady=(0, 12))
+        lock_inner = ctk.CTkFrame(lock_card, fg_color="transparent")
+        lock_inner.pack(padx=16, pady=12, fill="x")
+
+        ctk.CTkLabel(
+            lock_inner, text="🔒  Auto-lock after inactivity",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=C["text_secondary"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        minutes_map = {"Off": 0, "5 min": 5, "10 min": 10, "30 min": 30, "1 hour": 60}
+        reverse_map = {v: k for k, v in minutes_map.items()}
+        current_label = reverse_map.get(self._auto_lock_minutes, "Off")
+
+        self.lock_menu = ctk.CTkOptionMenu(
+            lock_inner,
+            values=list(minutes_map.keys()),
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color=C["bg_input"], button_color=C["border"],
+            button_hover_color=C["text_muted"],
+            dropdown_fg_color=C["bg_card"],
+            dropdown_hover_color=C["bg_hover"],
+            text_color=C["text_primary"],
+            corner_radius=8,
+            command=lambda val: self._apply_auto_lock(val, minutes_map),
+        )
+        self.lock_menu.set(current_label)
+        self.lock_menu.pack(fill="x")
+
+        # -- Export / Import --
+        data_card = ctk.CTkFrame(
+            container, fg_color=C["bg_card"], corner_radius=12,
+            border_width=1, border_color=C["border"],
+        )
+        data_card.pack(fill="x", pady=(0, 12))
+        data_inner = ctk.CTkFrame(data_card, fg_color="transparent")
+        data_inner.pack(padx=16, pady=12, fill="x")
+
+        ctk.CTkLabel(
+            data_inner, text="Data",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=C["text_secondary"],
+        ).pack(anchor="w", pady=(0, 6))
+
+        ctk.CTkLabel(
+            data_inner,
+            text="CSV export is plaintext — keep the file secure.",
+            font=ctk.CTkFont(size=10),
+            text_color=C["text_muted"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        self.data_status = ctk.CTkLabel(
+            data_inner, text="",
+            font=ctk.CTkFont(size=11),
+            text_color=C["text_muted"],
+        )
+        self.data_status.pack(anchor="w", pady=(0, 6))
+
+        btn_row = ctk.CTkFrame(data_inner, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        ctk.CTkButton(
+            btn_row, text="⬆  Export CSV",
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color="transparent", hover_color=C["bg_hover"],
+            border_width=1, border_color=C["border"],
+            text_color=C["text_primary"], corner_radius=8,
+            command=self._export_csv,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(
+            btn_row, text="⬇  Import CSV",
+            font=ctk.CTkFont(size=12), height=34,
+            fg_color="transparent", hover_color=C["bg_hover"],
+            border_width=1, border_color=C["border"],
+            text_color=C["text_primary"], corner_radius=8,
+            command=self._import_csv,
+        ).pack(side="right", fill="x", expand=True)
+
+        # -- Shortcuts --
         sc_card = ctk.CTkFrame(
             container, fg_color=C["bg_card"], corner_radius=12,
             border_width=1, border_color=C["border"],
         )
         sc_card.pack(fill="x")
-
         sc_inner = ctk.CTkFrame(sc_card, fg_color="transparent")
         sc_inner.pack(padx=16, pady=12, fill="x")
 
@@ -853,7 +1066,12 @@ class SettingsDialog(ctk.CTkToplevel):
             text_color=C["text_secondary"],
         ).pack(anchor="w", pady=(0, 6))
 
-        for key, desc in [("Ctrl+N", "New entry"), ("Ctrl+F", "Search"), ("Ctrl+L", "Lock vault"), ("Esc", "Clear search")]:
+        for key, desc in [
+            ("Ctrl+N", "New entry"),
+            ("Ctrl+F", "Search"),
+            ("Ctrl+L", "Lock vault"),
+            ("Esc", "Clear search"),
+        ]:
             row = ctk.CTkFrame(sc_inner, fg_color="transparent")
             row.pack(fill="x", pady=1)
             ctk.CTkLabel(
@@ -864,6 +1082,47 @@ class SettingsDialog(ctk.CTkToplevel):
                 row, text=desc, font=ctk.CTkFont(size=11),
                 text_color=C["text_muted"],
             ).pack(side="left")
+
+    def _apply_auto_lock(self, label: str, minutes_map: dict):
+        minutes = minutes_map.get(label, 0)
+        if self._on_auto_lock_change:
+            self._on_auto_lock_change(minutes)
+
+    def _export_csv(self):
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Export Vault to CSV",
+            initialfile="vault_export.csv",
+        )
+        if not filepath:
+            return
+        try:
+            count = self.db.export_to_csv(filepath)
+            self.data_status.configure(
+                text=f"✓ Exported {count} {'entry' if count == 1 else 'entries'}",
+                text_color=get_colors()["success"],
+            )
+        except Exception as e:
+            self.data_status.configure(text=f"Export failed: {e}", text_color=get_colors()["error"])
+
+    def _import_csv(self):
+        filepath = filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Import from CSV",
+        )
+        if not filepath:
+            return
+        try:
+            imported, skipped = self.db.import_from_csv(filepath)
+            msg = f"✓ Imported {imported} {'entry' if imported == 1 else 'entries'}"
+            if skipped:
+                msg += f", {skipped} skipped"
+            self.data_status.configure(text=msg, text_color=get_colors()["success"])
+            if hasattr(self.parent_ref, "_refresh_entries"):
+                self.parent_ref._refresh_entries()
+        except Exception as e:
+            self.data_status.configure(text=f"Import failed: {e}", text_color=get_colors()["error"])
 
     def _change_password(self):
         self.destroy()
@@ -905,7 +1164,11 @@ class ChangePasswordDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12), text_color=C["text_secondary"],
         ).pack(anchor="w", pady=(0, 16))
 
-        for label_text, attr_name in [("Current Password", "current_entry"), ("New Password", "new_entry"), ("Confirm New Password", "confirm_entry")]:
+        for label_text, attr_name in [
+            ("Current Password", "current_entry"),
+            ("New Password", "new_entry"),
+            ("Confirm New Password", "confirm_entry"),
+        ]:
             ctk.CTkLabel(
                 container, text=label_text,
                 font=ctk.CTkFont(size=12, weight="bold"),

@@ -184,6 +184,15 @@ class PasswordGeneratorDialog(ctk.CTkToplevel):
             command=self._generate,
         ).pack(side="left", fill="x", expand=True, padx=(0, 6))
 
+        self.copy_btn = ctk.CTkButton(
+            btn_frame, text="⎘  Copy", font=ctk.CTkFont(size=13),
+            height=42, fg_color=C["bg_card"], hover_color=C["bg_hover"],
+            border_width=1, border_color=C["border"],
+            text_color=C["text_primary"], corner_radius=10,
+            command=self._copy_to_clipboard,
+        )
+        self.copy_btn.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
         ctk.CTkButton(
             btn_frame, text="✓  Use This", font=ctk.CTkFont(size=13, weight="bold"),
             height=42, fg_color=C["accent"], hover_color=C["accent_hover"],
@@ -248,6 +257,16 @@ class PasswordGeneratorDialog(ctk.CTkToplevel):
             )
         except ValueError as e:
             self.output_label.configure(text=str(e))
+
+    def _copy_to_clipboard(self):
+        if not self.generated_password:
+            return
+        C = get_colors()
+        self.clipboard_clear()
+        self.clipboard_append(self.generated_password)
+        self.update()
+        self.copy_btn.configure(text="✓  Copied!", fg_color=C["success"])
+        self.after(1500, lambda: self.copy_btn.configure(text="⎘  Copy", fg_color=C["bg_card"]))
 
     def _accept(self):
         if self.generated_password:
