@@ -1,184 +1,182 @@
 """
 theme.py - Centralized theme system with dark/light mode support.
 
-All colors, fonts, and styling constants live here so every screen
-stays visually consistent. The toggle_theme() function swaps everything
-at once.
+All colors, fonts, and styling constants live here.
 """
 
-# Current mode: "dark" or "light"
 _current_mode = "dark"
 
 DARK = {
-    # Backgrounds
-    "bg_primary": "#0f1117",
-    "bg_secondary": "#161b22",
-    "bg_card": "#1c2333",
-    "bg_input": "#232b3e",
-    "bg_sidebar": "#0d1117",
-    "bg_hover": "#2a3346",
+    # Backgrounds — deep, rich, high contrast
+    "bg_primary":   "#07090f",
+    "bg_secondary": "#0d1117",
+    "bg_card":      "#0d1117",
+    "bg_input":     "#161b27",
+    "bg_sidebar":   "#050709",
+    "bg_hover":     "#1a2236",
 
-    # Accent
-    "accent": "#4f8ff7",
-    "accent_hover": "#3a7ae0",
-    "accent_muted": "#1e3a5f",
+    # Accent — vivid blue
+    "accent":       "#3b82f6",
+    "accent_hover": "#2563eb",
+    "accent_muted": "#1e3058",
 
     # Status
-    "success": "#3fb950",
-    "error": "#f85149",
-    "warning": "#d29922",
+    "success": "#22c55e",
+    "error":   "#ef4444",
+    "warning": "#f59e0b",
 
     # Text
-    "text_primary": "#e6edf3",
-    "text_secondary": "#8b949e",
-    "text_muted": "#484f58",
+    "text_primary":   "#f1f5f9",
+    "text_secondary": "#94a3b8",
+    "text_muted":     "#475569",
 
     # Borders
-    "border": "#30363d",
-    "border_subtle": "#21262d",
+    "border":        "#1e293b",
+    "border_subtle": "#111827",
 
     # Strength meter
-    "strength_very_weak": "#f85149",
-    "strength_weak": "#f0883e",
-    "strength_moderate": "#d29922",
-    "strength_strong": "#3fb950",
-    "strength_very_strong": "#56d364",
+    "strength_very_weak":   "#ef4444",
+    "strength_weak":        "#f97316",
+    "strength_moderate":    "#f59e0b",
+    "strength_strong":      "#22c55e",
+    "strength_very_strong": "#4ade80",
 
     # Special
-    "sidebar_active": "#1e3a5f",
-    "avatar_colors": ["#4f8ff7", "#f0883e", "#a371f7", "#3fb950", "#f85149", "#d29922", "#56d364", "#79c0ff"],
-    "copy_btn": "#238636",
-    "copy_btn_hover": "#2ea043",
-    "delete_btn": "#da3633",
-    "delete_btn_hover": "#f85149",
+    "sidebar_active":  "#172554",
+    "avatar_colors":   ["#3b82f6", "#f97316", "#a855f7", "#22c55e", "#ef4444", "#f59e0b", "#4ade80", "#38bdf8"],
+    "copy_btn":        "#166534",
+    "copy_btn_hover":  "#15803d",
+    "delete_btn":      "#dc2626",
+    "delete_btn_hover": "#ef4444",
 }
 
 LIGHT = {
-    # Backgrounds
-    "bg_primary": "#ffffff",
-    "bg_secondary": "#f6f8fa",
-    "bg_card": "#ffffff",
-    "bg_input": "#f6f8fa",
-    "bg_sidebar": "#f0f2f5",
-    "bg_hover": "#eaeef2",
+    "bg_primary":   "#ffffff",
+    "bg_secondary": "#f8fafc",
+    "bg_card":      "#ffffff",
+    "bg_input":     "#f1f5f9",
+    "bg_sidebar":   "#f0f4f8",
+    "bg_hover":     "#e2e8f0",
 
-    # Accent
-    "accent": "#0969da",
-    "accent_hover": "#0550ae",
-    "accent_muted": "#ddf4ff",
+    "accent":       "#2563eb",
+    "accent_hover": "#1d4ed8",
+    "accent_muted": "#dbeafe",
 
-    # Status
-    "success": "#1a7f37",
-    "error": "#cf222e",
-    "warning": "#9a6700",
+    "success": "#16a34a",
+    "error":   "#dc2626",
+    "warning": "#d97706",
 
-    # Text
-    "text_primary": "#1f2328",
-    "text_secondary": "#656d76",
-    "text_muted": "#8c959f",
+    "text_primary":   "#0f172a",
+    "text_secondary": "#475569",
+    "text_muted":     "#94a3b8",
 
-    # Borders
-    "border": "#d0d7de",
-    "border_subtle": "#e1e4e8",
+    "border":        "#e2e8f0",
+    "border_subtle": "#f1f5f9",
 
-    # Strength meter
-    "strength_very_weak": "#cf222e",
-    "strength_weak": "#bc4c00",
-    "strength_moderate": "#9a6700",
-    "strength_strong": "#1a7f37",
-    "strength_very_strong": "#116329",
+    "strength_very_weak":   "#dc2626",
+    "strength_weak":        "#ea580c",
+    "strength_moderate":    "#d97706",
+    "strength_strong":      "#16a34a",
+    "strength_very_strong": "#15803d",
 
-    # Special
-    "sidebar_active": "#ddf4ff",
-    "avatar_colors": ["#0969da", "#bc4c00", "#8250df", "#1a7f37", "#cf222e", "#9a6700", "#116329", "#0550ae"],
-    "copy_btn": "#1a7f37",
-    "copy_btn_hover": "#116329",
-    "delete_btn": "#cf222e",
-    "delete_btn_hover": "#a40e26",
+    "sidebar_active":  "#dbeafe",
+    "avatar_colors":   ["#2563eb", "#ea580c", "#9333ea", "#16a34a", "#dc2626", "#d97706", "#15803d", "#0284c7"],
+    "copy_btn":        "#16a34a",
+    "copy_btn_hover":  "#15803d",
+    "delete_btn":      "#dc2626",
+    "delete_btn_hover": "#b91c1c",
+}
+
+# Per-category accent colors — used for card borders and avatars
+CATEGORY_COLORS = {
+    "General":   "#475569",  # slate
+    "Social":    "#e879f9",  # fuchsia
+    "Work":      "#fbbf24",  # amber
+    "Finance":   "#4ade80",  # green
+    "Shopping":  "#fb923c",  # orange
+    "Education": "#a78bfa",  # violet
+    "Other":     "#38bdf8",  # sky
 }
 
 
 def get_colors() -> dict:
-    """Get the current theme's color palette."""
     return DARK if _current_mode == "dark" else LIGHT
 
 
 def get_mode() -> str:
-    """Get the current theme mode."""
     return _current_mode
 
 
 def set_mode(mode: str):
-    """Set the theme mode ('dark' or 'light')."""
     global _current_mode
     _current_mode = mode
 
 
 def toggle_mode() -> str:
-    """Toggle between dark and light mode. Returns the new mode."""
     global _current_mode
     _current_mode = "light" if _current_mode == "dark" else "dark"
     return _current_mode
 
 
 def get_strength_color(strength_label: str) -> str:
-    """Get the color for a password strength label."""
     colors = get_colors()
     mapping = {
-        "Very Weak": colors["strength_very_weak"],
-        "Weak": colors["strength_weak"],
-        "Moderate": colors["strength_moderate"],
-        "Strong": colors["strength_strong"],
+        "Very Weak":   colors["strength_very_weak"],
+        "Weak":        colors["strength_weak"],
+        "Moderate":    colors["strength_moderate"],
+        "Strong":      colors["strength_strong"],
         "Very Strong": colors["strength_very_strong"],
     }
     return mapping.get(strength_label, colors["text_muted"])
 
 
+def get_category_color(category: str) -> str:
+    """Get the accent color for a category."""
+    return CATEGORY_COLORS.get(category, CATEGORY_COLORS["General"])
+
+
 def get_avatar_color(name: str) -> str:
-    """Get a consistent color for a site name's avatar."""
     colors = get_colors()
     avatar_colors = colors["avatar_colors"]
     index = sum(ord(c) for c in name) % len(avatar_colors)
     return avatar_colors[index]
 
 
-# Site icon mapping — first letter with category-based fallback icons
 SITE_ICONS = {
-    "github": "⌨",
-    "google": "🔍",
-    "gmail": "✉",
-    "facebook": "👥",
-    "twitter": "🐦",
+    "github":    "⌨",
+    "google":    "🔍",
+    "gmail":     "✉",
+    "facebook":  "👥",
+    "twitter":   "🐦",
     "instagram": "📷",
-    "netflix": "🎬",
-    "spotify": "🎵",
-    "amazon": "📦",
-    "discord": "💬",
-    "reddit": "🗨",
-    "youtube": "▶",
-    "linkedin": "💼",
-    "steam": "🎮",
-    "apple": "🍎",
+    "netflix":   "🎬",
+    "spotify":   "🎵",
+    "amazon":    "📦",
+    "discord":   "💬",
+    "reddit":    "🗨",
+    "youtube":   "▶",
+    "linkedin":  "💼",
+    "steam":     "🎮",
+    "apple":     "🍎",
     "microsoft": "🪟",
-    "slack": "💬",
-    "twitch": "🟣",
-    "paypal": "💳",
-    "bank": "🏦",
+    "slack":     "💬",
+    "twitch":    "🟣",
+    "paypal":    "💳",
+    "bank":      "🏦",
 }
 
 CATEGORY_ICONS = {
-    "General": "🔑",
-    "Social": "👥",
-    "Work": "💼",
-    "Finance": "💳",
-    "Shopping": "🛒",
+    "General":   "🔑",
+    "Social":    "👥",
+    "Work":      "💼",
+    "Finance":   "💳",
+    "Shopping":  "🛒",
     "Education": "📚",
-    "Other": "📌",
+    "Other":     "📌",
 }
 
 
 def get_site_icon(site_name: str, category: str = "General") -> str:
-    """Get an icon for a site, falling back to category icon."""
     lower = site_name.lower()
     for key, icon in SITE_ICONS.items():
         if key in lower:

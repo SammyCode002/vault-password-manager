@@ -25,7 +25,7 @@ from core.password_gen import estimate_strength
 from gui.generator import PasswordGeneratorDialog
 from gui.theme import (
     get_colors, get_strength_color, get_avatar_color,
-    get_site_icon, get_mode, toggle_mode, CATEGORY_ICONS,
+    get_site_icon, get_category_color, get_mode, toggle_mode, CATEGORY_ICONS,
 )
 
 
@@ -133,7 +133,9 @@ class MainWindow(ctk.CTkFrame):
     def _build_ui(self):
         C = get_colors()
 
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=0)  # sidebar
+        self.grid_columnconfigure(1, weight=0)  # separator
+        self.grid_columnconfigure(2, weight=1)  # content
         self.grid_rowconfigure(0, weight=1)
 
         # ==========================================
@@ -236,11 +238,16 @@ class MainWindow(ctk.CTkFrame):
         )
         self.lock_btn.pack(fill="x")
 
+        # Sidebar separator
+        ctk.CTkFrame(self, width=1, fg_color=C["border"], corner_radius=0).grid(
+            row=0, column=1, sticky="ns"
+        )
+
         # ==========================================
         # MAIN CONTENT AREA
         # ==========================================
         content = ctk.CTkFrame(self, fg_color=C["bg_primary"], corner_radius=0)
-        content.grid(row=0, column=1, sticky="nsew")
+        content.grid(row=0, column=2, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(2, weight=1)
 
@@ -376,27 +383,33 @@ class MainWindow(ctk.CTkFrame):
 
     def _create_entry_card(self, entry: dict, index: int):
         C = get_colors()
+        category = entry.get("category", "General")
+        cat_color = get_category_color(category)
 
         card = ctk.CTkFrame(
             self.list_frame, fg_color=C["bg_card"],
             corner_radius=12, border_width=1,
-            border_color=C["border_subtle"],
+            border_color=cat_color + "55",  # category color at ~33% opacity via hex
         )
-        card.grid(row=index, column=0, sticky="ew", pady=(0, 6))
-        card.grid_columnconfigure(1, weight=1)
+        card.grid(row=index, column=0, sticky="ew", pady=(0, 8))
+        card.grid_columnconfigure(2, weight=1)
+
+        # -- Left accent strip (category color) --
+        ctk.CTkFrame(
+            card, width=3, fg_color=cat_color, corner_radius=0,
+        ).grid(row=0, column=0, sticky="ns", padx=(0, 0))
 
         # -- Site Avatar --
-        avatar_color = get_avatar_color(entry["site_name"])
-        site_icon = get_site_icon(entry["site_name"], entry.get("category", "General"))
+        site_icon = get_site_icon(entry["site_name"], category)
 
-        avatar = ctk.CTkFrame(card, width=44, height=44, corner_radius=10, fg_color=avatar_color)
-        avatar.grid(row=0, column=0, padx=(14, 10), pady=14)
+        avatar = ctk.CTkFrame(card, width=46, height=46, corner_radius=10, fg_color=cat_color + "22")
+        avatar.grid(row=0, column=1, padx=(12, 10), pady=12)
         avatar.grid_propagate(False)
-        ctk.CTkLabel(avatar, text=site_icon, font=ctk.CTkFont(size=18)).place(relx=0.5, rely=0.5, anchor="center")
+        ctk.CTkLabel(avatar, text=site_icon, font=ctk.CTkFont(size=20), text_color=cat_color).place(relx=0.5, rely=0.5, anchor="center")
 
         # -- Info Column (packed vertically) --
         info = ctk.CTkFrame(card, fg_color="transparent")
-        info.grid(row=0, column=1, sticky="nsew", pady=10)
+        info.grid(row=0, column=2, sticky="nsew", pady=10)
 
         # Site name + category badge
         name_row = ctk.CTkFrame(info, fg_color="transparent")
@@ -444,17 +457,17 @@ class MainWindow(ctk.CTkFrame):
 
         # -- Action Buttons --
         btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-        btn_frame.grid(row=0, column=2, padx=(8, 14), pady=14)
+        btn_frame.grid(row=0, column=3, padx=(8, 14), pady=12)
 
         copy_btn = ctk.CTkButton(
             btn_frame, text="Copy",
             font=ctk.CTkFont(size=11, weight="bold"),
-            width=64, height=30,
-            fg_color=C["copy_btn"], hover_color=C["copy_btn_hover"],
+            width=68, height=32,
+            fg_color=cat_color, hover_color=cat_color,
             text_color="#ffffff", corner_radius=8,
             command=lambda e=entry: self._copy_password(e, copy_btn),
         )
-        copy_btn.pack(pady=(0, 4))
+        copy_btn.pack(pady=(0, 6))
 
         mini_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
         mini_frame.pack()

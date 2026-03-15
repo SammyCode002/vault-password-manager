@@ -41,42 +41,43 @@ class LoginWindow(ctk.CTkFrame):
 
         # Main card
         card = ctk.CTkFrame(
-            self, fg_color=C["bg_card"], corner_radius=20,
+            self, fg_color=C["bg_card"], corner_radius=24,
             border_width=1, border_color=C["border"],
         )
         card.grid(row=1, column=0, padx=40, pady=20)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(padx=48, pady=44)
+        inner.pack(padx=52, pady=48)
 
         # --- Logo / Brand ---
         logo_frame = ctk.CTkFrame(inner, fg_color="transparent")
-        logo_frame.pack(pady=(0, 6))
+        logo_frame.pack(pady=(0, 4))
 
-        # Shield icon circle
-        shield_bg = ctk.CTkFrame(
-            logo_frame, width=72, height=72, corner_radius=36,
+        # Outer glow ring
+        glow_ring = ctk.CTkFrame(
+            logo_frame, width=96, height=96, corner_radius=48,
             fg_color=C["accent_muted"],
+            border_width=2, border_color=C["accent"],
         )
-        shield_bg.pack()
-        shield_bg.pack_propagate(False)
+        glow_ring.pack()
+        glow_ring.pack_propagate(False)
 
         ctk.CTkLabel(
-            shield_bg, text="🛡", font=ctk.CTkFont(size=32),
+            glow_ring, text="🛡", font=ctk.CTkFont(size=40),
             text_color=C["accent"],
         ).place(relx=0.5, rely=0.5, anchor="center")
 
         # App name
         ctk.CTkLabel(
             inner, text="Vault",
-            font=ctk.CTkFont(size=28, weight="bold"),
+            font=ctk.CTkFont(size=32, weight="bold"),
             text_color=C["text_primary"],
-        ).pack(pady=(12, 2))
+        ).pack(pady=(16, 2))
 
         ctk.CTkLabel(
             inner, text="Password Manager",
-            font=ctk.CTkFont(size=13),
-            text_color=C["text_secondary"],
+            font=ctk.CTkFont(size=12),
+            text_color=C["text_muted"],
         ).pack(pady=(0, 4))
 
         # --- Title ---
@@ -194,16 +195,16 @@ class LoginWindow(ctk.CTkFrame):
         self.status_label.pack(fill="x", pady=(8, 0))
 
         # --- Submit Button ---
-        btn_text = "Create Vault" if self.is_setup_mode else "Unlock"
+        btn_text = "Create Vault" if self.is_setup_mode else "Unlock Vault"
         self.submit_btn = ctk.CTkButton(
             inner, text=btn_text,
             font=ctk.CTkFont(size=15, weight="bold"),
-            height=46, fg_color=C["accent"],
+            height=50, fg_color=C["accent"],
             hover_color=C["accent_hover"],
             corner_radius=12,
             command=self._submit,
         )
-        self.submit_btn.pack(fill="x", pady=(16, 0))
+        self.submit_btn.pack(fill="x", pady=(20, 0))
 
         self.password_entry.bind("<Return>", lambda e: self._submit())
         self.password_entry.focus_set()
