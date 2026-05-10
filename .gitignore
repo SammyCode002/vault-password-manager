@@ -27,3 +27,7 @@ env/
 # Testing artifacts
 test_vault.db
 *.tmp
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/

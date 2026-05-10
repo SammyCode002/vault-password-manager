@@ -2,6 +2,7 @@
 
 A desktop password manager I built from scratch in Python. Everything stays on your machine, with no accounts, no sync, and no cloud. Credentials are encrypted with AES-128-CBC (via Fernet), keys are derived with PBKDF2-SHA256 at 600,000 iterations, and your master password is never stored anywhere.
 
+[![CI](https://github.com/SammyCode002/vault-password-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/SammyCode002/vault-password-manager/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -137,15 +138,16 @@ Master Password
 
 ---
 
-## Self-Tests
+## Tests
 
-Each core module has a built-in self-test:
+Full pytest suite covering the encryption, database, and password generator modules. CI runs it on Python 3.10 - 3.13 (see the badge at the top).
 
 ```bash
-python -m core.encryption    # key derivation, encrypt/decrypt, tamper detection
-python -m core.database      # full CRUD + master password change cycle
-python -m core.password_gen  # generation, entropy estimation, edge cases
+pip install -r requirements-dev.txt
+pytest --cov
 ```
+
+Coverage targets >= 90% on every core module. Each module also keeps a `python -m core.<module>` self-test for quick manual smoke checks.
 
 ---
 
