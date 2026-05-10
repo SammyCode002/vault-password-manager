@@ -1,4 +1,4 @@
-# 🔐 Vault — Local Password Manager
+# 🔐 Vault - Local Password Manager
 
 A desktop password manager I built from scratch in Python. Everything stays on your machine — no accounts, no sync, no cloud. Credentials are encrypted with AES-128-CBC (via Fernet), keys are derived with PBKDF2-SHA256 at 600,000 iterations, and your master password is never stored anywhere.
 
