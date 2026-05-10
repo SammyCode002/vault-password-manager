@@ -20,10 +20,12 @@ Key concepts:
 """
 
 import os
+import hmac
 import base64
 import hashlib
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
 
@@ -52,15 +54,15 @@ def generate_salt() -> bytes:
 def derive_key(master_password: str, salt: bytes) -> bytes:
     """
     Derive a Fernet-compatible encryption key from the master password.
-    
+
     Uses PBKDF2 (Password-Based Key Derivation Function 2) with SHA-256.
     This is intentionally slow — 600,000 iterations means each guess takes
     real time, which destroys brute-force attack speed.
-    
+
     Args:
         master_password: The user's master password (plaintext string)
         salt: Random bytes to mix into the derivation
-        
+
     Returns:
         A 32-byte key, base64-encoded (Fernet requires this format)
     """
@@ -73,6 +75,62 @@ def derive_key(master_password: str, salt: bytes) -> bytes:
     # Fernet expects the key to be base64 URL-safe encoded
     key = base64.urlsafe_b64encode(kdf.derive(master_password.encode('utf-8')))
     return key
+
+
+def derive_keys(master_password: str, salt: bytes) -> tuple[bytes, bytes]:
+    """
+    Derive both the encryption key AND a verification token from one PBKDF2 pass.
+
+    The slow PBKDF2 step happens ONCE, then HKDF cheaply expands the result
+    into two domain-separated keys. This means verifying the master password
+    is just as expensive as decrypting an entry, so an attacker who steals
+    vault.db can't bypass the KDF cost by hammering the verification hash.
+
+    Args:
+        master_password: The user's master password
+        salt: The vault's stored salt
+
+    Returns:
+        (fernet_key, verification_token) - both 32 bytes; fernet_key is
+        base64-url-safe encoded so Fernet accepts it directly.
+    """
+    # The expensive part: a single PBKDF2 pass
+    initial = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=PBKDF2_ITERATIONS,
+    ).derive(master_password.encode('utf-8'))
+
+    # Cheap expansion: split into two unrelated keys
+    enc_raw = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"vault-encrypt-key-v1",
+    ).derive(initial)
+
+    verify_token = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"vault-verify-token-v1",
+    ).derive(initial)
+
+    fernet_key = base64.urlsafe_b64encode(enc_raw)
+    return fernet_key, verify_token
+
+
+def verify_token_constant_time(computed: bytes, stored_hex: str) -> bool:
+    """
+    Compare a freshly-derived verification token against the stored hex value
+    in constant time, so the comparison can't leak information through timing.
+    """
+    try:
+        stored = bytes.fromhex(stored_hex)
+    except ValueError:
+        return False
+    return hmac.compare_digest(computed, stored)
 
 
 def encrypt(plaintext: str, key: bytes) -> bytes:
@@ -143,17 +201,19 @@ def hash_master_password(master_password: str, salt: bytes) -> str:
 
 def verify_master_password(master_password: str, salt: bytes, stored_hash: str) -> bool:
     """
-    Check if the entered master password matches the stored verification hash.
-    
+    Check if the entered master password matches the stored verification hash
+    (legacy v1 path, kept so existing vaults can still unlock and be migrated).
+
     Args:
         master_password: What the user just typed in
         salt: The salt stored in the database
         stored_hash: The hash we saved during setup
-        
+
     Returns:
         True if the password is correct, False otherwise
     """
-    return hash_master_password(master_password, salt) == stored_hash
+    computed = hash_master_password(master_password, salt)
+    return hmac.compare_digest(computed, stored_hash)
 
 
 # --- Quick self-test ---
@@ -200,7 +260,27 @@ if __name__ == "__main__":
         print("   ERROR: Should have failed!")
     except InvalidToken:
         print("   InvalidToken raised as expected ✓")
-    
+
+    # Step 8: New PBKDF2+HKDF dual-output path
+    print("\n8. Testing dual-key derivation (encryption + verification)...")
+    fk, vt = derive_keys(test_password, salt)
+    fk2, vt2 = derive_keys(test_password, salt)
+    assert fk == fk2 and vt == vt2, "Derivation must be deterministic"
+    fk_wrong, vt_wrong = derive_keys("wrong_password", salt)
+    assert fk != fk_wrong and vt != vt_wrong, "Different password must give different keys"
+    # The encryption key is still Fernet-usable
+    enc2 = encrypt(test_data, fk)
+    assert decrypt(enc2, fk) == test_data
+    print("   Dual derivation works and round-trips ✓")
+
+    # Step 9: Constant-time verification token check
+    print("\n9. Testing constant-time verification token...")
+    stored = vt.hex()
+    assert verify_token_constant_time(vt, stored) is True
+    assert verify_token_constant_time(vt_wrong, stored) is False
+    assert verify_token_constant_time(vt, "not-valid-hex") is False
+    print("   Constant-time compare passes correct + rejects wrong ✓")
+
     print("\n" + "=" * 50)
     print("All tests passed!")
     print("=" * 50)

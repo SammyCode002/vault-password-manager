@@ -25,11 +25,18 @@ from typing import Optional
 from core.encryption import (
     generate_salt,
     derive_key,
+    derive_keys,
     encrypt,
     decrypt,
     hash_master_password,
     verify_master_password,
+    verify_token_constant_time,
 )
+
+
+# v1: legacy single SHA-512 verification hash + separately derived key
+# v2: PBKDF2+HKDF dual output, verification = HKDF(PBKDF2(...), info="vault-verify-token-v1")
+CURRENT_SCHEMA_VERSION = 2
 
 
 # Default vault location — sits right next to the app
@@ -77,6 +84,15 @@ class VaultDatabase:
                 created_at TEXT NOT NULL
             )
         """)
+
+        # Add the version column for older vaults that pre-date schema v2.
+        # SQLite raises if the column already exists, so swallow that one case.
+        try:
+            cursor.execute(
+                "ALTER TABLE master_config ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
+            )
+        except sqlite3.OperationalError:
+            pass
 
         # Entries table — the actual password vault
         # All sensitive fields (username, password, notes) are stored encrypted
@@ -131,15 +147,22 @@ class VaultDatabase:
         if cursor.fetchone()[0] > 0:
             raise ValueError("Vault is already initialized. Use unlock() instead.")
 
-        # Generate salt and derive everything from the master password
+        # Generate salt and derive both the encryption key and verification
+        # token in a single PBKDF2 pass (HKDF expands the result).
         self._salt = generate_salt()
-        self.encryption_key = derive_key(master_password, self._salt)
-        pw_hash = hash_master_password(master_password, self._salt)
+        self.encryption_key, verify_token = derive_keys(master_password, self._salt)
 
-        # Store the salt and hash (never the password itself)
         cursor.execute(
-            "INSERT INTO master_config (id, salt, password_hash, created_at) VALUES (1, ?, ?, ?)",
-            (self._salt, pw_hash, datetime.now(timezone.utc).isoformat()),
+            """
+            INSERT INTO master_config (id, salt, password_hash, created_at, version)
+            VALUES (1, ?, ?, ?, ?)
+            """,
+            (
+                self._salt,
+                verify_token.hex(),
+                datetime.now(timezone.utc).isoformat(),
+                CURRENT_SCHEMA_VERSION,
+            ),
         )
         self.conn.commit()
 
@@ -160,7 +183,9 @@ class VaultDatabase:
         self._connect()
 
         cursor = self.conn.cursor()
-        cursor.execute("SELECT salt, password_hash FROM master_config WHERE id = 1")
+        cursor.execute(
+            "SELECT salt, password_hash, version FROM master_config WHERE id = 1"
+        )
         row = cursor.fetchone()
 
         if row is None:
@@ -168,13 +193,28 @@ class VaultDatabase:
 
         self._salt = row["salt"]
         stored_hash = row["password_hash"]
+        version = row["version"]
 
-        # Verify the password
+        if version >= CURRENT_SCHEMA_VERSION:
+            # New path: one PBKDF2, HKDF expansion, constant-time compare
+            fernet_key, verify_token = derive_keys(master_password, self._salt)
+            if not verify_token_constant_time(verify_token, stored_hash):
+                return False
+            self.encryption_key = fernet_key
+            return True
+
+        # Legacy v1 vault: verify with the old SHA-512 hash, then transparently
+        # upgrade to v2 so the next unlock uses the stronger path.
         if not verify_master_password(master_password, self._salt, stored_hash):
             return False
 
-        # Password is correct — derive the encryption key
-        self.encryption_key = derive_key(master_password, self._salt)
+        new_fernet_key, new_verify_token = derive_keys(master_password, self._salt)
+        cursor.execute(
+            "UPDATE master_config SET password_hash = ?, version = ? WHERE id = 1",
+            (new_verify_token.hex(), CURRENT_SCHEMA_VERSION),
+        )
+        self.conn.commit()
+        self.encryption_key = new_fernet_key
         return True
 
     def lock(self):
@@ -416,12 +456,14 @@ class VaultDatabase:
         """
         self._require_unlocked()
 
-        # Verify old password first
+        # Verify old password first (current vault is already on v2 because
+        # unlock() upgrades on its way in)
         cursor = self.conn.cursor()
         cursor.execute("SELECT salt, password_hash FROM master_config WHERE id = 1")
         row = cursor.fetchone()
 
-        if not verify_master_password(old_password, row["salt"], row["password_hash"]):
+        _, old_verify_token = derive_keys(old_password, row["salt"])
+        if not verify_token_constant_time(old_verify_token, row["password_hash"]):
             return False
 
         # Decrypt all entries with the old key
@@ -429,8 +471,7 @@ class VaultDatabase:
 
         # Generate new salt and key
         new_salt = generate_salt()
-        new_key = derive_key(new_password, new_salt)
-        new_hash = hash_master_password(new_password, new_salt)
+        new_key, new_verify_token = derive_keys(new_password, new_salt)
 
         try:
             # Re-encrypt everything in a transaction
@@ -438,8 +479,8 @@ class VaultDatabase:
 
             # Update master config
             cursor.execute(
-                "UPDATE master_config SET salt = ?, password_hash = ? WHERE id = 1",
-                (new_salt, new_hash),
+                "UPDATE master_config SET salt = ?, password_hash = ?, version = ? WHERE id = 1",
+                (new_salt, new_verify_token.hex(), CURRENT_SCHEMA_VERSION),
             )
 
             # Re-encrypt each entry
@@ -635,8 +676,58 @@ if __name__ == "__main__":
     print(f"   Data intact: {entries[0]['site_name']} - {entries[0]['username']} ✓")
     db4.lock()
 
+    # Test 9: Legacy v1 vault auto-upgrades to v2 on unlock
+    print("\n9. Testing v1 → v2 auto-migration...")
+    legacy_db_path = os.path.join(tempfile.gettempdir(), "test_vault_legacy.db")
+    if os.path.exists(legacy_db_path):
+        os.remove(legacy_db_path)
+
+    # Hand-build a v1 vault: salt + legacy SHA-512 hash, version=1
+    legacy_pw = "Legacy@Vault123"
+    legacy_conn = sqlite3.connect(legacy_db_path)
+    legacy_conn.execute(
+        """
+        CREATE TABLE master_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            salt BLOB NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    legacy_salt = generate_salt()
+    legacy_hash = hash_master_password(legacy_pw, legacy_salt)
+    legacy_conn.execute(
+        "INSERT INTO master_config (id, salt, password_hash, created_at, version) VALUES (1, ?, ?, ?, 1)",
+        (legacy_salt, legacy_hash, datetime.now(timezone.utc).isoformat()),
+    )
+    legacy_conn.commit()
+    legacy_conn.close()
+
+    legacy_db = VaultDatabase(legacy_db_path)
+    assert legacy_db.unlock(legacy_pw) is True, "v1 vault should unlock with old hash"
+    # After unlock, the stored hash should now be the new HKDF-derived token
+    cur = legacy_db.conn.cursor()
+    cur.execute("SELECT password_hash, version FROM master_config WHERE id = 1")
+    row = cur.fetchone()
+    assert row["version"] == CURRENT_SCHEMA_VERSION, "version must bump to v2"
+    assert row["password_hash"] != legacy_hash, "hash must be re-derived"
+    legacy_db.lock()
+
+    # And the migrated vault now unlocks via the v2 path
+    legacy_db2 = VaultDatabase(legacy_db_path)
+    assert legacy_db2.unlock(legacy_pw) is True, "migrated vault must unlock on v2 path"
+    legacy_db2.lock()
+    print("   Legacy v1 vault unlocked, hash migrated, re-unlocks on v2 ✓")
+
     # Cleanup
-    os.remove(test_db_path)
+    try:
+        os.remove(test_db_path)
+        os.remove(legacy_db_path)
+    except PermissionError:
+        # Windows sometimes holds the SQLite file briefly; not fatal for the test
+        pass
 
     print("\n" + "=" * 50)
     print("All tests passed!")
