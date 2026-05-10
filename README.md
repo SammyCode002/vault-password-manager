@@ -116,10 +116,10 @@ Master Password
 
 ## Honest Limitations
 
-- **No cloud sync** — `vault.db` is a local file. Back it up yourself.
-- **No browser extension** — passwords are copied manually.
-- **No secure memory pinning** — Python can't prevent the OS from swapping memory pages. A real production tool would use C/C++ for this (KeePass does). This is a known tradeoff for any Python credential manager.
-- **Basic entropy estimation** — strength uses `length × log₂(pool_size)`. It doesn't detect dictionary words or patterns the way zxcvbn does.
+- **No cloud sync** - `vault.db` is a local file. Back it up yourself.
+- **No browser extension** - passwords are copied manually.
+- **No secure memory pinning** - Python can't prevent the OS from swapping memory pages. A real production tool would use C/C++ for this (KeePass does). This is a known tradeoff for any Python credential manager.
+- **Basic entropy estimation** - strength uses `length × log₂(pool_size)`. It doesn't detect dictionary words or patterns the way zxcvbn does.
 - **Single device** — no multi-device support.
 
 ---
@@ -155,4 +155,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-*CS / Cybersecurity portfolio project — built to actually work, not just look good on a resume.*
+*CS / Cybersecurity portfolio project.*
