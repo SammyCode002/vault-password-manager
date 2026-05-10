@@ -1,6 +1,6 @@
 # 🔐 Vault - Local Password Manager
 
-A desktop password manager I built from scratch in Python. Everything stays on your machine — no accounts, no sync, no cloud. Credentials are encrypted with AES-128-CBC (via Fernet), keys are derived with PBKDF2-SHA256 at 600,000 iterations, and your master password is never stored anywhere.
+A desktop password manager I built from scratch in Python. Everything stays on your machine, with no accounts, no sync, and no cloud. Credentials are encrypted with AES-128-CBC (via Fernet), keys are derived with PBKDF2-SHA256 at 600,000 iterations, and your master password is never stored anywhere.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -13,13 +13,13 @@ A desktop password manager I built from scratch in Python. Everything stays on y
 **Security**
 - AES-128-CBC encryption with HMAC-SHA256 tamper detection (Fernet)
 - PBKDF2-SHA256 key derivation at 600,000 iterations (OWASP 2023 minimum)
-- Master password never stored — only a domain-separated SHA-512 verification hash
+- Master password never stored, only a domain-separated SHA-512 verification hash
 - Clipboard auto-clears 15 seconds after copying a password
 - Encryption key wiped from memory on vault lock
 
 **Vault**
 - Add, edit, delete entries with site name, username, password, URL, and notes
-- Category organization — General, Social, Work, Finance, Shopping, Education
+- Category organization across General, Social, Work, Finance, Shopping, Education
 - Live entry counts per category in the sidebar
 - Search by site name (plaintext, no full decryption needed)
 - Reveal password in-place with the eye button
@@ -30,8 +30,8 @@ A desktop password manager I built from scratch in Python. Everything stays on y
 - Auto-lock after configurable inactivity (5 min, 10 min, 30 min, 1 hour)
 
 **Password Generator**
-- Random passwords — configurable length (6–64), character types, exclude ambiguous chars
-- Passphrase mode — word count, separator, capitalize, append number
+- Random passwords with configurable length (6–64), character types, exclude ambiguous chars
+- Passphrase mode with word count, separator, capitalize, append number
 - Entropy-based strength meter with real-time feedback
 - Copy directly from the generator without closing the dialog
 
@@ -53,7 +53,7 @@ python main.py
 
 Python 3.10+ required. tkinter is included with most Python installs.
 
-On first launch you'll create a master password. That's the only one you need to remember. There's no recovery option — that's intentional.
+On first launch you'll create a master password. That's the only one you need to remember. There's no recovery option, and that's intentional.
 
 ---
 
@@ -76,7 +76,7 @@ vault-password-manager/
 ├── requirements.txt
 ├── core/
 │   ├── encryption.py        # PBKDF2 key derivation, Fernet encrypt/decrypt
-│   ├── database.py          # SQLite vault — CRUD, export/import, master password change
+│   ├── database.py          # SQLite vault for CRUD, export/import, master password change
 │   └── password_gen.py      # Password & passphrase generator, strength estimation
 └── gui/
     ├── login_window.py      # Setup / unlock screen
@@ -106,7 +106,7 @@ Master Password
                                Stored in DB (login check only)
 ```
 
-**Why 600,000 PBKDF2 iterations?** Each login attempt takes real CPU time — fast enough that you barely notice it (~0.5s), slow enough that offline brute-force is painful. OWASP's 2023 recommendation for PBKDF2-SHA256 is 600,000.
+**Why 600,000 PBKDF2 iterations?** Each login attempt takes real CPU time. Fast enough that you barely notice it (~0.5s), slow enough that offline brute-force is painful. OWASP's 2023 recommendation for PBKDF2-SHA256 is 600,000.
 
 **Why are site names in plaintext?** So search works without decrypting every row. An attacker with your vault file can see which services you use but not your actual credentials. KeePass and Bitwarden make the same call.
 
@@ -120,7 +120,7 @@ Master Password
 - **No browser extension** - passwords are copied manually.
 - **No secure memory pinning** - Python can't prevent the OS from swapping memory pages. A real production tool would use C/C++ for this (KeePass does). This is a known tradeoff for any Python credential manager.
 - **Basic entropy estimation** - strength uses `length × log₂(pool_size)`. It doesn't detect dictionary words or patterns the way zxcvbn does.
-- **Single device** — no multi-device support.
+- **Single device** - no multi-device support.
 
 ---
 
@@ -130,7 +130,7 @@ Master Password
 |-----------|-----------|
 | Language | Python 3.10+ |
 | GUI | CustomTkinter |
-| Encryption | `cryptography` — Fernet / AES-128-CBC |
+| Encryption | `cryptography` (Fernet / AES-128-CBC) |
 | Key Derivation | PBKDF2-SHA256, 600K iterations |
 | Storage | SQLite3 (stdlib) |
 | RNG | `secrets` module (OS CSPRNG) |
